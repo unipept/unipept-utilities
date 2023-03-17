@@ -2,6 +2,11 @@
 
 set -e
 
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 <version>"
+    exit 1
+fi
+
 # The version number of Unipept Web that should be deployed. (this version number should correspond to an existing tag)
 version="$1"
 
