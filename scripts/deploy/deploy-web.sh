@@ -7,8 +7,8 @@ if [[ $# -ne 1 ]]; then
     exit 1
 fi
 
-# The version number of Unipept Web that should be deployed. (this version number should correspond to an existing tag)
-version="$1"
+# The GitHub SHA-tag that should be deployed.
+sha="$1"
 
 # Clone the Unipept repository in the temp folder (remove old versions of the unipept repository)
 cd /tmp && rm -rf unipept
@@ -16,7 +16,7 @@ git clone https://github.com/unipept/unipept.git
 
 # Build the Unipept Web application
 cd unipept
-git checkout "tags/$version" -b main
+git checkout "$sha"
 
 # Install the dependencies
 npm install
