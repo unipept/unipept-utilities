@@ -1,0 +1,12 @@
+{
+  "name": "halog-collector",
+  "version": "1.0.0",
+  "description": "A collection of NodeJS scripts that parse HAlog files and store the corresponding results in a sqlite database.",
+  "main": "index.js",
+  "repository": "https://github.com/unipept/script-utils",
+  "author": "Pieter Verschaffelt",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^8.0.1"
+  }
+}
