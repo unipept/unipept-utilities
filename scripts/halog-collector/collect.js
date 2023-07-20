@@ -72,7 +72,8 @@ for (const line of lines) {
     const avgTime = Number.parseFloat(fields[avgTimeCol]);
     const endpoint = fields[endpointCol]
         .replace("https://api.unipept.ugent.be", "")
-        .replace("http://api.unipept.ugent.be", "");
+        .replace("http://api.unipept.ugent.be", "")
+        .replace("//", "/");
 
     if (accepted_endpoints.some(v => endpoint.includes(v))) {
         con.query(
