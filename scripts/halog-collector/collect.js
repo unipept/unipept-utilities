@@ -78,7 +78,7 @@ for (const line of lines) {
     if (accepted_endpoints.some(v => endpoint.includes(v))) {
         con.query(
             `INSERT INTO endpoint_stats (date, endpoint, req_successful, req_error, avg_duration)
-         VALUES (CURDATE(), ?, ?, ?, ?);`,
+         VALUES (SUBDATE(CURDATE(), 1), ?, ?, ?, ?);`,
             [endpoint, totalReqCount - badReqCount, badReqCount, avgTime],
             (err, result) => {
                 if (err) {
