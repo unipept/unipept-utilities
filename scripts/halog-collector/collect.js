@@ -14,7 +14,7 @@ const args = process.argv;
 if (args.length !== 5) {
     console.error("This script expects exactly three arguments.");
     console.error("HAProxy log data will be read from stdin.")
-    console.error("example: halog -u -H /var/log/haproxy.log | node collect.js <mysql_user> <mysql_password> <database_name>");
+    console.error("example: cat /var/log/haproxy.log | halog -u -H | node collect.js <mysql_user> <mysql_password> <database_name>");
     process.exit(1);
 }
 
