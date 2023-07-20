@@ -70,8 +70,9 @@ for (const line of lines) {
     const totalReqCount = Number.parseInt(fields[totalReqCountCol]);
     const badReqCount = Number.parseInt(fields[badReqCountCol]);
     const avgTime = Number.parseFloat(fields[avgTimeCol]);
-    const endpoint = fields[endpointCol];
-
+    const endpoint = fields[endpointCol]
+        .replace("https://api.unipept.ugent.be", "")
+        .replace("http://api.unipept.ugent.be", "");
 
     if (accepted_endpoints.some(v => endpoint.includes(v))) {
         con.query(
