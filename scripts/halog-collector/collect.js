@@ -11,10 +11,10 @@ import mysql from "mysql2";
 
 const args = process.argv;
 
-if (args.length !== 6) {
-    console.error("This script expects exactly three arguments.");
+if (args.length !== 7) {
+    console.error("This script expects exactly five arguments.");
     console.error("HAProxy log data will be read from stdin.")
-    console.error("example: cat /var/log/haproxy.log | halog -u -H | node collect.js <mysql_user> <mysql_password> <database_port> <database_name>");
+    console.error("example: cat /var/log/haproxy.log | halog -u -H | node collect.js <mysql_user> <mysql_password> <database_port> <database_name> <database_host>");
     process.exit(1);
 }
 
@@ -22,12 +22,14 @@ const mysqlUser = args[2];
 const mysqlPassword = args[3];
 const databasePort = args[4];
 const databaseName = args[5];
+const host = args[6];
 
 const con = mysql.createConnection({
     user: mysqlUser,
     password: mysqlPassword,
     database: databaseName,
-    port: databasePort
+    port: databasePort,
+    host: host
 });
 
 const rl = readline.createInterface({
