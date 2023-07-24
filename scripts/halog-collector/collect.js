@@ -66,6 +66,8 @@ await new Promise((resolve, reject) => {
     });
 });
 
+const stats = new Map();
+
 // All done
 for (const line of lines) {
     const fields = line.split(delimiter);
@@ -78,19 +80,37 @@ for (const line of lines) {
         .replace("//", "/");
 
     if (accepted_endpoints.some(v => endpoint.includes(v))) {
-        con.query(
-            `INSERT INTO endpoint_stats (date, endpoint, req_successful, req_error, avg_duration)
-         VALUES (SUBDATE(CURDATE(), 1), ?, ?, ?, ?);`,
-            [endpoint, totalReqCount - badReqCount, badReqCount, avgTime],
-            (err, result) => {
-                if (err) {
-                    console.error("Error while inserting data into MySQL database.");
-                    console.error(err);
-                    process.exit(3);
-                }
-            }
-        );
+        const currentStat = {
+            totalReqCount,
+            badReqCount,
+            avgTime
+        }
+
+        if (stats.has(endpoint)) {
+            currentStat.totalReqCount += stats.get(endpoint).totalReqCount;
+            currentStat.badReqCount += stats.get(endpoint).badReqCount;
+            currentStat.avgTime = (
+                currentStat.avgTime * totalReqCount +
+                stats.get(endpoint).avgTime * stats.get(endpoint).totalReqCount
+            ) / (currentStat.totalReqCount + stats.get(endpoint).totalReqCount);
+        }
+
+        stats.set(endpoint, currentStat);
     }
+}
+
+for (const [endpoint, stat] of stats) {
+    con.query(
+        `INSERT INTO endpoint_stats (date, endpoint, req_successful, req_error, avg_duration) VALUES (SUBDATE(CURDATE(), 1), ?, ?, ?, ?);`,
+        [endpoint, stat.totalReqCount - stat.badReqCount, stat.badReqCount, stat.avgTime],
+        (err, result) => {
+            if (err) {
+                console.error("Error while inserting data into MySQL database.");
+                console.error(err);
+                process.exit(3);
+            }
+        }
+    );
 }
 
 con.end();
