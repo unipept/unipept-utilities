@@ -206,6 +206,7 @@ const argv = yargs(hideBin(process.argv))
         "nodes",
         "Collect node statistics and counts (i.e. which server is handling how many requests?).",
         (argv) => {
+            console.log(argv);
             const db = setupDatabase(argv);
             processNodes(db, argv.haproxyConfig);
         }
