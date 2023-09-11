@@ -152,6 +152,7 @@ const processNodes = function(dbConnection, halogPath) {
             continue;
         }
 
+
         serverName = serverName.split("/")[1];
 
         const totalReqCount = Number.parseInt(fields[totReqCountCol]);
@@ -173,6 +174,8 @@ const processNodes = function(dbConnection, halogPath) {
                 stats.get(serverName).avgTime * stats.get(serverName).totalReqCount
             ) / (currentStat.totalReqCount + stats.get(serverName).totalReqCount);
         }
+
+        stats.set(serverName, currentStat);
     }
 
     for (const [serverName, stat] of stats) {
@@ -200,15 +203,17 @@ const argv = yargs(hideBin(process.argv))
         (argv) => {
             const db = setupDatabase(argv);
             processEndpoints(db, argv.haproxyConfig);
+            db.end();
         }
     )
     .command(
         "nodes",
         "Collect node statistics and counts (i.e. which server is handling how many requests?).",
+        () => {},
         (argv) => {
-            console.log(argv);
             const db = setupDatabase(argv);
             processNodes(db, argv.haproxyConfig);
+            db.end();
         }
     )
     .command("sources", "Collect user agent statistics and count how many times the browser / desktop / cli app was used.")
