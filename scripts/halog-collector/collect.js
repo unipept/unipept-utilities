@@ -6,113 +6,237 @@
  * @author Pieter Verschaffelt
  */
 
-import readline from "readline";
 import mysql from "mysql2";
+import { execSync } from "node:child_process";
 
-const args = process.argv;
+import yargs from "yargs";
+import { hideBin } from "yargs/helpers";
 
-if (args.length !== 7) {
-    console.error("This script expects exactly five arguments.");
-    console.error("HAProxy log data will be read from stdin.")
-    console.error("example: cat /var/log/haproxy.log | halog -u -H | node collect.js <mysql_user> <mysql_password> <database_port> <database_name> <database_host>");
-    process.exit(1);
+const setupDatabase = function(argv) {
+    return mysql.createConnection({
+        user: argv.dbUser,
+        password: argv.dbPassword,
+        database: argv.dbName,
+        port: argv.dbPort,
+        host: argv.dbHost
+    });
 }
 
-const mysqlUser = args[2];
-const mysqlPassword = args[3];
-const databasePort = args[4];
-const databaseName = args[5];
-const host = args[6];
+/**
+ * Process a given command (run it through the shell), extract it's output and sanitize it (e.g. remove the header,
+ * trailing newlines and the status message at the end of the command's output).
+ *
+ * @param command The shell command that should be executed.
+ * @returns string[] An array of output returned by the given command.
+ */
+const processCommand = function(command) {
+    let lineIdx = 0;
+    const lines = [];
 
-const con = mysql.createConnection({
-    user: mysqlUser,
-    password: mysqlPassword,
-    database: databaseName,
-    port: databasePort,
-    host: host
-});
+    const stdout = execSync(command, { encoding: "utf-8" });
 
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    terminal: false
-});
+    for (const line of stdout.split("\n")) {
+        if (lineIdx === 0) {
+            lineIdx++;
+            continue;
+        }
 
-// Some constants to parse the input lines read by this script.
-const delimiter = " ";
-const totalReqCountCol = 0;
-const badReqCountCol = 1;
-const avgTimeCol = 3;
-const endpointCol = 8;
-
-// A list of strings that the endpoint should contain in order to be kept in the database. If an endpoint does not
-// contain a value in this array, it will be refused.
-const accepted_endpoints = ["/mpa", "/private_api", "/api"];
-
-let lineIdx = 0;
-const lines = [];
-rl.on("line",  (line) => {
-    if (lineIdx === 0) {
         lineIdx++;
-        return;
+        lines.push(line.trimEnd());
     }
 
-    lineIdx++;
+    // Remove the last line, which is the status message of the command.
+    lines.splice(-1, 1);
+    return lines;
+}
 
-    lines.push(line);
-});
+/**
+ * This function analyzes the HAProxy logfile (using the halog command) and keeps track of how many times each Unipept
+ * API-endpoint has been called (including successful and failed requests) and how long the average call took.
+ *
+ * @param dbConnection A valid connection to the database in which the summarized results should be kept.
+ * @param halogPath The path to the HAProxy log file that should be analyzed.
+ */
+const processEndpoints = function(dbConnection, halogPath) {
+    const lines = processCommand(`cat ${halogPath} | halog -u -H`);
 
-await new Promise((resolve, reject) => {
-    rl.on("close", () => {
-        resolve();
-    });
-});
+    // Some constants to parse the input lines read by this script.
+    const delimiter = " ";
+    const totalReqCountCol = 0;
+    const badReqCountCol = 1;
+    const avgTimeCol = 3;
+    const endpointCol = 8;
 
-const stats = new Map();
+    // A list of strings that the endpoint should contain in order to be kept in the database. If an endpoint does not
+    // contain a value in this array, it will be refused.
+    const accepted_endpoints = ["/mpa", "/private_api", "/api"];
 
-// All done
-for (const line of lines) {
-    const fields = line.split(delimiter);
-    const totalReqCount = Number.parseInt(fields[totalReqCountCol]);
-    const badReqCount = Number.parseInt(fields[badReqCountCol]);
-    const avgTime = Number.parseFloat(fields[avgTimeCol]);
-    const endpoint = fields[endpointCol]
-        .replace("https://api.unipept.ugent.be", "")
-        .replace("http://api.unipept.ugent.be", "")
-        .replace("//", "/");
+    const stats = new Map();
 
-    if (accepted_endpoints.some(v => endpoint.includes(v))) {
+    // All done
+    for (const line of lines) {
+        const fields = line.split(delimiter);
+        const totalReqCount = Number.parseInt(fields[totalReqCountCol]);
+        const badReqCount = Number.parseInt(fields[badReqCountCol]);
+        const avgTime = Number.parseFloat(fields[avgTimeCol]);
+        const endpoint = fields[endpointCol]
+            .replace("https://api.unipept.ugent.be", "")
+            .replace("http://api.unipept.ugent.be", "")
+            .replace("//", "/");
+
+        if (accepted_endpoints.some(v => endpoint.includes(v))) {
+            const currentStat = {
+                totalReqCount,
+                badReqCount,
+                avgTime
+            }
+
+            if (stats.has(endpoint)) {
+                currentStat.totalReqCount += stats.get(endpoint).totalReqCount;
+                currentStat.badReqCount += stats.get(endpoint).badReqCount;
+                currentStat.avgTime = (
+                    currentStat.avgTime * totalReqCount +
+                    stats.get(endpoint).avgTime * stats.get(endpoint).totalReqCount
+                ) / (currentStat.totalReqCount + stats.get(endpoint).totalReqCount);
+            }
+
+            stats.set(endpoint, currentStat);
+        }
+    }
+
+    for (const [endpoint, stat] of stats) {
+        dbConnection.query(
+            `INSERT INTO endpoint_stats (date, endpoint, req_successful, req_error, avg_duration) VALUES (SUBDATE(CURDATE(), 1), ?, ?, ?, ?);`,
+            [endpoint, stat.totalReqCount - stat.badReqCount, stat.badReqCount, stat.avgTime],
+            (err, result) => {
+                if (err) {
+                    console.error("Error while inserting data into MySQL database.");
+                    console.error(err);
+                    process.exit(3);
+                }
+            }
+        );
+    }
+}
+
+/**
+ * Process the HAProxy log file and keep track of how many times each of the different handling nodes has been called.
+ *
+ * @param dbConnection The connection with the database that should be filled with the aggregated statistics.
+ * @param halogPath HAProxy configuration file containing information about which node handled which requests.
+ */
+const processNodes = function(dbConnection, halogPath) {
+    const lines = processCommand(`cat ${halogPath} | halog -H -srv`);
+
+    // Some constants to parse the input lines read by this script.
+    const delimiter = " ";
+    const serverNameCol = 0;
+    const totReqCountCol = 7;
+    const successfulReqCountCol = 8;
+    const avgTimeCol = 11;
+
+    const acceptedNodes = [
+        "patty",
+        "selma",
+        "rick",
+        "sherlock"
+    ]
+
+    const stats = new Map();
+
+    for (const line of lines) {
+        const fields = line.split(delimiter);
+        let serverName = fields[serverNameCol];
+
+        if (!acceptedNodes.some((n) => serverName.includes(n))) {
+            continue;
+        }
+
+        serverName = serverName.split("/")[1];
+
+        const totalReqCount = Number.parseInt(fields[totReqCountCol]);
+        const successfulReqCount = Number.parseInt(fields[successfulReqCountCol]);
+        const badReqCount = totalReqCount - successfulReqCount;
+        const avgTime = Number.parseFloat(fields[avgTimeCol]);
+
         const currentStat = {
             totalReqCount,
             badReqCount,
             avgTime
         }
 
-        if (stats.has(endpoint)) {
-            currentStat.totalReqCount += stats.get(endpoint).totalReqCount;
-            currentStat.badReqCount += stats.get(endpoint).badReqCount;
+        if (stats.has(serverName)) {
+            currentStat.totalReqCount += stats.get(serverName).totalReqCount;
+            currentStat.badReqCount += stats.get(serverName).badReqCount;
             currentStat.avgTime = (
                 currentStat.avgTime * totalReqCount +
-                stats.get(endpoint).avgTime * stats.get(endpoint).totalReqCount
-            ) / (currentStat.totalReqCount + stats.get(endpoint).totalReqCount);
+                stats.get(serverName).avgTime * stats.get(serverName).totalReqCount
+            ) / (currentStat.totalReqCount + stats.get(serverName).totalReqCount);
         }
+    }
 
-        stats.set(endpoint, currentStat);
+    for (const [serverName, stat] of stats) {
+        dbConnection.query(
+            `INSERT INTO node_stats (date, node, req_successful, req_error, avg_duration) VALUES (SUBDATE(CURDATE(), 1), ?, ?, ?, ?);`,
+            [serverName, stat.totalReqCount - stat.badReqCount, stat.badReqCount, stat.avgTime],
+            (err, result) => {
+                if (err) {
+                    console.error("Error while inserting data into MySQL database.");
+                    console.error(err);
+                    process.exit(3);
+                }
+            }
+        );
     }
 }
 
-for (const [endpoint, stat] of stats) {
-    con.query(
-        `INSERT INTO endpoint_stats (date, endpoint, req_successful, req_error, avg_duration) VALUES (SUBDATE(CURDATE(), 1), ?, ?, ?, ?);`,
-        [endpoint, stat.totalReqCount - stat.badReqCount, stat.badReqCount, stat.avgTime],
-        (err, result) => {
-            if (err) {
-                console.error("Error while inserting data into MySQL database.");
-                console.error(err);
-                process.exit(3);
-            }
-        }
-    );
-}
 
-con.end();
+const argv = yargs(hideBin(process.argv))
+    .usage('Usage: node $0 <command> [options]')
+    .command(
+        "endpoints",
+        "Collect endpoint statistics and counts (i.e. which API-endpoint is called how many times?).",
+        () => {},
+        (argv) => {
+            const db = setupDatabase(argv);
+            processEndpoints(db, argv.haproxyConfig);
+        }
+    )
+    .command(
+        "nodes",
+        "Collect node statistics and counts (i.e. which server is handling how many requests?).",
+        (argv) => {
+            const db = setupDatabase(argv);
+            processNodes(db, argv.haproxyConfig);
+        }
+    )
+    .command("sources", "Collect user agent statistics and count how many times the browser / desktop / cli app was used.")
+    .option("db-user", {
+        alias: "u",
+        describe: "The username that should be used to connect to the MySQL database.",
+    })
+    .default("db-user", "root")
+    .option("db-password", {
+        alias: "p",
+        describe: "The password that should be used to connect to the MySQL database.",
+    })
+    .default("db-password", "")
+    .option("db-name", {
+        describe: "The name of the MySQL database in which the results should be stored."
+    })
+    .default("db-name", "statistics")
+    .option("db-host", {
+        describe: "The host of the MySQL database in which the results should be stored. Defaults to \"localhost\""
+    })
+    .default("db-host", "localhost")
+    .option("db-port", {
+        describe: "The port of the MySQL database in which the results should be stored. Defaults to 3306."
+    })
+    .default("db-port", "3306")
+    .option("endpoint-config", {
+        describe: "The path to the HAProxy log file that should be used to collect endpoint statistics."
+    })
+    .default("haproxy-config", "/var/log/haproxy.log")
+    .help("help")
+    .alias("help", "h")
+    .argv;
