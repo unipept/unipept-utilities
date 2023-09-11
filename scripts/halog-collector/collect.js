@@ -193,6 +193,66 @@ const processNodes = function(dbConnection, halogPath) {
     }
 }
 
+/**
+ * Process the HAProxy log file and keep track of where the requests originated from (CLI, Desktop app, Browser or other).
+ *
+ * @param dbConnection A valid connection to the database in which the summarized results should be kept.
+ * @param halogPath The path to the HAProxy log file that should be analyzed.
+ */
+const processSources = function(dbConnection, halogPath) {
+    const userAgentCounts = processCommand(`cat ${halogPath} | grep "{" | sed "s/^.*{\\(.*\\)}.*$/\\1/" | sort | uniq -c`);
+
+    let desktopCounts = 0;
+    let cliCounts = 0;
+    let webCounts = 0;
+    let otherCounts = 0;
+
+    const matchesBrowser = function(userAgent) {
+        const tests = [
+            /chrome|chromium|crios/i,
+            /firefox|fxios/i,
+            /safari/i,
+            /opr/i,
+            /edg/i,
+        ];
+
+        return tests.some(t => userAgent.match(t));
+    }
+
+    for (const line of userAgentCounts) {
+        // Remove both leading and trailing spaces
+        const trimmed = line.trim();
+
+        const fields = trimmed.split(" ");
+        const counts = Number.parseInt(fields[0]);
+        const userAgent = fields.slice(1).join(" ");
+
+        if (userAgent.toLowerCase().includes("unipeptdesktop")) {
+            desktopCounts += counts;
+        } else if (userAgent.toLowerCase().includes("unipept cli")) {
+            cliCounts += counts;
+        } else if (matchesBrowser(userAgent)) {
+            webCounts += counts;
+        } else {
+            otherCounts += counts;
+        }
+    }
+
+    for (const [sourceName, counts] of new Map([[ "desktop", desktopCounts ], [ "cli", cliCounts ], [ "web", webCounts ], [ "other", otherCounts ]])) {
+        dbConnection.query(
+            `INSERT INTO source_stats (date, source, req_total) VALUES (SUBDATE(CURDATE(), 1), ?, ?);`,
+            [sourceName, counts],
+            (err, result) => {
+                if (err) {
+                    console.error("Error while inserting data into MySQL database.");
+                    console.error(err);
+                    process.exit(3);
+                }
+            }
+        );
+    }
+}
+
 
 const argv = yargs(hideBin(process.argv))
     .usage('Usage: node $0 <command> [options]')
@@ -216,7 +276,16 @@ const argv = yargs(hideBin(process.argv))
             db.end();
         }
     )
-    .command("sources", "Collect user agent statistics and count how many times the browser / desktop / cli app was used.")
+    .command(
+        "sources",
+        "Collect user agent statistics and count how many times the browser / desktop / cli app was used.",
+        () => {},
+        (argv) => {
+            const db = setupDatabase(argv);
+            processSources(db, argv.haproxyConfig);
+            db.end();
+        }
+    )
     .option("db-user", {
         alias: "u",
         describe: "The username that should be used to connect to the MySQL database.",

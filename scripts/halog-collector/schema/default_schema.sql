@@ -21,3 +21,11 @@ CREATE TABLE node_stats (
     avg_duration REAL,
     PRIMARY KEY (id)
 );
+
+CREATE TABLE source_stats (
+    id INTEGER NOT NULL AUTO_INCREMENT,
+    date TEXT NOT NULL,
+    source TEXT NOT NULL,
+    req_total INTEGER,
+    PRIMARY KEY (id)
+);
