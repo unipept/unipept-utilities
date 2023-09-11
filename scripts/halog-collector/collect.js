@@ -200,7 +200,7 @@ const processNodes = function(dbConnection, halogPath) {
  * @param halogPath The path to the HAProxy log file that should be analyzed.
  */
 const processSources = function(dbConnection, halogPath) {
-    const userAgentCounts = processCommand(`cat ${halogPath} | grep "{" | sed "s/^.*{\\(.*\\)}.*$/\\1/" | sort | uniq -c`);
+    const userAgentCounts = processCommand(`cat ${halogPath} | grep "{" | cut -d "{" -f 2 | cut -d "}" -f 1 | sort | uniq -c`);
 
     let desktopCounts = 0;
     let cliCounts = 0;
