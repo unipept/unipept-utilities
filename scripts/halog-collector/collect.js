@@ -233,7 +233,7 @@ const argv = yargs(hideBin(process.argv))
         describe: "The port of the MySQL database in which the results should be stored. Defaults to 3306."
     })
     .default("db-port", "3306")
-    .option("endpoint-config", {
+    .option("haproxy-config", {
         describe: "The path to the HAProxy log file that should be used to collect endpoint statistics."
     })
     .default("haproxy-config", "/var/log/haproxy.log")
