@@ -104,6 +104,11 @@ const processEndpoints = function(dbConnection, halogPath) {
         }
     }
 
+    // Check if yesterday's data is already present in the database and remove it (we will replace it with the new data).
+    dbConnection.query(
+        `DROP FROM endpoint_stats WHERE date SUBDATE(CURDATE(), 1);`
+    );
+
     for (const [endpoint, stat] of stats) {
         dbConnection.query(
             `INSERT INTO endpoint_stats (date, endpoint, req_successful, req_error, avg_duration) VALUES (SUBDATE(CURDATE(), 1), ?, ?, ?, ?);`,
@@ -178,6 +183,11 @@ const processNodes = function(dbConnection, halogPath) {
         stats.set(serverName, currentStat);
     }
 
+    // Check if yesterday's data is already present in the database and remove it (we will replace it with the new data).
+    dbConnection.query(
+        `DROP FROM node_stats WHERE date SUBDATE(CURDATE(), 1);`
+    );
+
     for (const [serverName, stat] of stats) {
         dbConnection.query(
             `INSERT INTO node_stats (date, node, req_successful, req_error, avg_duration) VALUES (SUBDATE(CURDATE(), 1), ?, ?, ?, ?);`,
@@ -237,6 +247,12 @@ const processSources = function(dbConnection, halogPath) {
             otherCounts += counts;
         }
     }
+
+
+    // Check if yesterday's data is already present in the database and remove it (we will replace it with the new data).
+    dbConnection.query(
+        `DROP FROM source_stats WHERE date SUBDATE(CURDATE(), 1);`
+    );
 
     for (const [sourceName, counts] of new Map([[ "desktop", desktopCounts ], [ "cli", cliCounts ], [ "web", webCounts ], [ "other", otherCounts ]])) {
         dbConnection.query(
