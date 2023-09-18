@@ -56,8 +56,9 @@ const processCommand = function(command) {
  *
  * @param dbConnection A valid connection to the database in which the summarized results should be kept.
  * @param halogPath The path to the HAProxy log file that should be analyzed.
+ * @param daysAgo Which date (e.g. how many days ago) does the provided log file belong to? Defaults to 1.
  */
-const processEndpoints = function(dbConnection, halogPath) {
+const processEndpoints = function(dbConnection, halogPath, daysAgo = 1) {
     const lines = processCommand(`cat ${halogPath} | halog -u -H`);
 
     // Some constants to parse the input lines read by this script.
@@ -106,13 +107,14 @@ const processEndpoints = function(dbConnection, halogPath) {
 
     // Check if yesterday's data is already present in the database and remove it (we will replace it with the new data).
     dbConnection.query(
-        `DELETE FROM endpoint_stats WHERE date = SUBDATE(CURDATE(), 1);`
+        `DELETE FROM endpoint_stats WHERE date = SUBDATE(CURDATE(), ?);`,
+        [daysAgo]
     );
 
     for (const [endpoint, stat] of stats) {
         dbConnection.query(
-            `INSERT INTO endpoint_stats (date, endpoint, req_successful, req_error, avg_duration) VALUES (SUBDATE(CURDATE(), 1), ?, ?, ?, ?);`,
-            [endpoint, stat.totalReqCount - stat.badReqCount, stat.badReqCount, stat.avgTime],
+            `INSERT INTO endpoint_stats (date, endpoint, req_successful, req_error, avg_duration) VALUES (SUBDATE(CURDATE(), ?), ?, ?, ?, ?);`,
+            [daysAgo, endpoint, stat.totalReqCount - stat.badReqCount, stat.badReqCount, stat.avgTime],
             (err, result) => {
                 if (err) {
                     console.error("Error while inserting data into MySQL database.");
@@ -129,8 +131,9 @@ const processEndpoints = function(dbConnection, halogPath) {
  *
  * @param dbConnection The connection with the database that should be filled with the aggregated statistics.
  * @param halogPath HAProxy configuration file containing information about which node handled which requests.
+ * @param daysAgo Which date (e.g. how many days ago) does the provided log file belong to? Defaults to 1.
  */
-const processNodes = function(dbConnection, halogPath) {
+const processNodes = function(dbConnection, halogPath, daysAgo = 1) {
     const lines = processCommand(`cat ${halogPath} | halog -H -srv`);
 
     // Some constants to parse the input lines read by this script.
@@ -185,13 +188,14 @@ const processNodes = function(dbConnection, halogPath) {
 
     // Check if yesterday's data is already present in the database and remove it (we will replace it with the new data).
     dbConnection.query(
-        `DELETE FROM node_stats WHERE date = SUBDATE(CURDATE(), 1);`
+        `DELETE FROM node_stats WHERE date = SUBDATE(CURDATE(), ?);`,
+        [daysAgo]
     );
 
     for (const [serverName, stat] of stats) {
         dbConnection.query(
-            `INSERT INTO node_stats (date, node, req_successful, req_error, avg_duration) VALUES (SUBDATE(CURDATE(), 1), ?, ?, ?, ?);`,
-            [serverName, stat.totalReqCount - stat.badReqCount, stat.badReqCount, stat.avgTime],
+            `INSERT INTO node_stats (date, node, req_successful, req_error, avg_duration) VALUES (SUBDATE(CURDATE(), ?), ?, ?, ?, ?);`,
+            [daysAgo, serverName, stat.totalReqCount - stat.badReqCount, stat.badReqCount, stat.avgTime],
             (err, result) => {
                 if (err) {
                     console.error("Error while inserting data into MySQL database.");
@@ -208,8 +212,9 @@ const processNodes = function(dbConnection, halogPath) {
  *
  * @param dbConnection A valid connection to the database in which the summarized results should be kept.
  * @param halogPath The path to the HAProxy log file that should be analyzed.
+ * @param daysAgo Which date (e.g. how many days ago) does the provided log file belong to? Defaults to 1.
  */
-const processSources = function(dbConnection, halogPath) {
+const processSources = function(dbConnection, halogPath, daysAgo = 1) {
     const userAgentCounts = processCommand(`cat ${halogPath} | grep "{" | cut -d "{" -f 2 | cut -d "}" -f 1 | sort | uniq -c`);
 
     let desktopCounts = 0;
@@ -251,13 +256,14 @@ const processSources = function(dbConnection, halogPath) {
 
     // Check if yesterday's data is already present in the database and remove it (we will replace it with the new data).
     dbConnection.query(
-        `DELETE FROM source_stats WHERE date = SUBDATE(CURDATE(), 1);`
+        `DELETE FROM source_stats WHERE date = SUBDATE(CURDATE(), ?);`,
+        [daysAgo]
     );
 
     for (const [sourceName, counts] of new Map([[ "desktop", desktopCounts ], [ "cli", cliCounts ], [ "web", webCounts ], [ "other", otherCounts ]])) {
         dbConnection.query(
-            `INSERT INTO source_stats (date, source, req_total) VALUES (SUBDATE(CURDATE(), 1), ?, ?);`,
-            [sourceName, counts],
+            `INSERT INTO source_stats (date, source, req_total) VALUES (SUBDATE(CURDATE(), ?), ?, ?);`,
+            [daysAgo, sourceName, counts],
             (err, result) => {
                 if (err) {
                     console.error("Error while inserting data into MySQL database.");
@@ -278,7 +284,7 @@ const argv = yargs(hideBin(process.argv))
         () => {},
         (argv) => {
             const db = setupDatabase(argv);
-            processEndpoints(db, argv.haproxyConfig);
+            processEndpoints(db, argv.haproxyConfig, Number.parseInt(argv.daysAgo));
             db.end();
         }
     )
@@ -288,7 +294,7 @@ const argv = yargs(hideBin(process.argv))
         () => {},
         (argv) => {
             const db = setupDatabase(argv);
-            processNodes(db, argv.haproxyConfig);
+            processNodes(db, argv.haproxyConfig, Number.parseInt(argv.daysAgo));
             db.end();
         }
     )
@@ -298,7 +304,7 @@ const argv = yargs(hideBin(process.argv))
         () => {},
         (argv) => {
             const db = setupDatabase(argv);
-            processSources(db, argv.haproxyConfig);
+            processSources(db, argv.haproxyConfig, Number.parseInt(argv.daysAgo));
             db.end();
         }
     )
@@ -328,6 +334,10 @@ const argv = yargs(hideBin(process.argv))
         describe: "The path to the HAProxy log file that should be used to collect endpoint statistics."
     })
     .default("haproxy-config", "/var/log/haproxy.log")
+    .option("days-ago", {
+        describe: "How many days ago was the provided log file created? Defaults to 1."
+    })
+    .default("days-ago", 1)
     .help("help")
     .alias("help", "h")
     .argv;
