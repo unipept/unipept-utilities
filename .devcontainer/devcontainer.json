@@ -13,7 +13,7 @@
   // "forwardPorts": [],
 
   // Use 'postCreateCommand' to run commands after the container is created.
-  "postCreateCommand": "apt update && apt -y install curl lz4 git libxml2-utils",
+  "postCreateCommand": "apt update && apt -y install curl lz4 git libxml2-utils pigz pv uuid-runtime parallel gawk cmake libclang-dev",
 
   // Configure tool-specific properties.
   // "customizations": {},
