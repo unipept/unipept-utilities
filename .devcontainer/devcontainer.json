@@ -1,7 +1,7 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
 // README at: https://github.com/devcontainers/templates/tree/main/src/anaconda
 {
-  "name": "Unipept Database",
+  "name": "Unipept Utilities",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
 
   // Features to add to the dev container. More info: https://containers.dev/features.
@@ -13,7 +13,7 @@
   // "forwardPorts": [],
 
   // Use 'postCreateCommand' to run commands after the container is created.
-  "postCreateCommand": "apt update && apt -y install curl pv pigz uuid-runtime parallel lz4 gawk libxml2-utils",
+  "postCreateCommand": "apt update && apt -y install curl lz4 git libxml2-utils",
 
   // Configure tool-specific properties.
   // "customizations": {},
