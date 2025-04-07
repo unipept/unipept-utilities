@@ -2,8 +2,12 @@
 
 set -eo pipefail
 
-# This script downloads the most recent version of the UniProtKB database, converts it to a suffix array and moves
-# all files into the right directory structure such that it can directly be deployed as Unipept API
+################################################################################
+# This script downloads the latest version of the UniProtKB database, converts #
+# it into a suffix array, and organizes the files into the appropriate         #
+# directory structure. This setup ensures a server's readiness for deployment  #
+# of the Unipept API.                                                          #
+################################################################################
 
 ################################################################################
 #                            Variables and options                             #
@@ -17,7 +21,13 @@ OUTPUT_DIR="/mnt/data/"
 
 DATABASE_SOURCES="swissprot,trembl"
 
-TASKS="build_index,setup_database"
+LOCAL_SSH_KEY=""
+
+REMOTE_ADDRESS=""
+
+REMOTE_PORT="4840"
+
+REMOTE_OUTPUT_DIR="/mnt/data"
 
 ################################################################################
 #                            Helper Functions                                  #
@@ -154,7 +164,7 @@ generate_tables() {
     "/${SCRATCH_DIR:?}/unipept-database/scripts/generate_sa_tables.sh" --database-sources "$DATABASE_SOURCES" --output-dir "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/tables" --temp-dir "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/temp"
 
     # Check if the required files are present and have been generated successfully
-    required_files=(
+    local required_files=(
         "uniprot_entries.tsv.lz4"
         "taxons.tsv.lz4"
         "lineages.tsv.lz4"
@@ -248,7 +258,7 @@ build_suffix_array() {
 extract_and_move_tables() {
     local uniprot_version="$1"
 
-    required_files=(
+    local required_files=(
         "taxons.tsv.lz4"
         "lineages.tsv.lz4"
         "interpro_entries.tsv.lz4"
@@ -298,7 +308,13 @@ extract_and_move_tables() {
 #   None                                                                       #
 ################################################################################
 setup_mariadb_database() {
-    uniprot_version="$1"
+    local uniprot_version="$1"
+
+    # Cleanup potential old versions of the unipept-database repository
+    rm -rf "${SCRATCH_DIR:?}/unipept-database"
+
+    # Download new version of the database repo
+    git clone --quiet "https://github.com/unipept/unipept-database.git" "${SCRATCH_DIR:?}/unipept-database"
 
     log "Start setting up MariaDB database."
 
@@ -318,6 +334,25 @@ setup_mariadb_database() {
     log "Finished setting up MariaDB database."
 }
 
+# Copies all required files from a server that already generated a new suffix array for the current UniProtKB version.
+copy_existing_database() {
+    local uniprot_version="$1"
+
+    local remote_dir="${REMOTE_OUTPUT_DIR}/uniprot-${uniprot_version}/"
+
+    # Check if remote_dir exists on the remote server
+    if ! ssh -i "${LOCAL_SSH_KEY}" -p "${REMOTE_PORT}" "${REMOTE_USER}@${REMOTE_ADDRESS}" "[ -d '${remote_dir}' ]"; then
+        log "Error: Remote directory '${remote_dir}' does not exist."
+        exit 2
+    fi
+
+    # Now start copying the generated files on the other server to this machine. First clean up any remains from a
+    # previous invocation of this script
+    rm -r "${OUTPUT_DIR}/uniprot-${uniprot_version}"
+
+    scp -i "${LOCAL_SSH_KEY}" -P "${REMOTE_PORT}" -r "${REMOTE_USER}@${REMOTE_ADDRESS}:${remote_dir}" "${OUTPUT_DIR}"
+}
+
 ################################################################################
 #                                    Main                                      #
 #                                                                              #
@@ -329,59 +364,64 @@ setup_mariadb_database() {
 # print_help                                                                  #
 #                                                                              #
 # Displays the usage instructions for the script, including all available      #
-# options and their descriptions.                                              #
+# options and their descriptions for each mode.                                #
 #                                                                              #
 # Globals:                                                                     #
 #   SCRATCH_DIR (optional) - Directory for temporary files and executables.    #
 #   OUTPUT_DIR (optional)  - Directory where the final output files are stored.#
 #   DATABASE_SOURCES (optional) - Subsections of the UniProtKB database to     #
-#                                  download (default: "swissprot,trembl").     #
-#   TASKS (optional) - List of tasks to perform, comma-separated               #
-#                      (default: "build_index,setup_database").                #
+#                                  download (update mode only).                #
+#   LOCAL_SSH_KEY (required) - Private key for remote communication (clone).   #
+#   REMOTE_ADDRESS (required) - Remote server address (clone mode only).       #
+#   REMOTE_USER (optional) - Remote server user, defaults to 'unipept'.        #
+#   REMOTE_PORT (optional) - Remote server SCP port, defaults to 4840.         #
+#   REMOTE_OUTPUT_DIR (optional) - Remote server database location, defaults   #
+#                                  to '/mnt/data' (clone mode only).           #
 #                                                                              #
 # Arguments:                                                                   #
 #   None                                                                       #
 #                                                                              #
 # Outputs:                                                                     #
-#   Usage information along with the current default values for options.       #
+#   Usage information along with descriptions for each mode.                   #
 #                                                                              #
 # Returns:                                                                     #
 #   None                                                                       #
 ################################################################################
 print_help() {
-    echo "Usage: $0 [OPTIONS]"
+    echo "Usage: $0 <mode> [OPTIONS]"
     echo
-    echo "Options:"
-    echo "  --scratch-dir <path>        Directory where temporary files and executables can be stored (default: ${SCRATCH_DIR})"
-    echo "  --output-dir <path>         Directory where the final output files will be stored (default: ${OUTPUT_DIR})"
-    echo "  --database-sources <value>  Subsections of the UniProtKB database to download (default: ${DATABASE_SOURCES})"
-    echo "  --tasks <value>             Comma-separated list of tasks to perform (default: ${TASKS})"
-    echo "                              Supported tasks:"
-    echo "                                - build_index: Download and parse the most recent UniProtKB database."
-    echo "                                  This task will also generate a new suffix array that can be used by the Unipept API."
-    echo "                                - setup_database: Initialize a mariadb database with the new uniprot entries"
-    echo "                                  available in the <OUTPUT_DIR>/uniprot-<UNIPROTKB_VERSION>/tables/uniprot_entries.tsv.lz4 file."
-    echo "                                  If this file is not present, you can generate it using the build_index step."
-    echo "  --help                      Show this help message and exit"
+    echo "Modes:"
+    echo "  update                       Updates the UniProtKB database files and generates a new suffix array."
+    echo "  clone                        Clones the UniProtKB database files from a remote server that already contains all files for the most recent UniProtKB version."
+    echo
+    echo "Options (common):"
+    echo "  --scratch-dir <path>         Directory where temporary files and executables can be stored (default: ${SCRATCH_DIR})"
+    echo "  --output-dir <path>          Directory where the final output files will be stored (default: ${OUTPUT_DIR})"
+    echo "  --help                       Show this help message and exit"
+    echo
+    echo "Options for 'update' mode:"
+    echo "  --database-sources <value>   Subsections of the UniProtKB database to download (default: ${DATABASE_SOURCES})"
+    echo
+    echo "Options for 'clone' mode:"
+    echo "  --local-ssh-key <path>       Private key used to communicate with the remote server (required)."
+    echo "  --remote-address <value>     Address of the remote server (required)."
+    echo "  --remote-user <value>        User on the remote server (default: unipept)."
+    echo "  --remote-port <value>        Port of the remote server available for SCP (default: 4840)."
+    echo "  --remote-output-dir <value>  Directory on the remote server that stores the database (default: /mnt/data)."
 }
 
 ################################################################################
-# parse_arguments                                                              #
+# parse_update_arguments                                                       #
 #                                                                              #
-# Parses command-line arguments and updates the corresponding script variables.#
-# Validates arguments to ensure required values are provided for each option.  #
+# Parses arguments for the 'update' mode and updates script variables.         #
 #                                                                              #
 # Globals:                                                                     #
-#   SCRATCH_DIR - Updated based on the --scratch-dir option (default: "~").    #
-#   OUTPUT_DIR - Updated based on the --output-dir option                      #
-#                (default: "/mnt/data/").                                      #
+#   SCRATCH_DIR, OUTPUT_DIR - Common variables updated by parse_common_arguments#
 #   DATABASE_SOURCES - Updated based on the --database-sources option          #
 #                      (default: "swissprot,trembl").                          #
-#   TASKS - Updated based on the --tasks option                                #
-#           (default: "build_index,setup_database").                           #
 #                                                                              #
 # Arguments:                                                                   #
-#   $@ - The command-line arguments passed to the script.                      #
+#   $@ - The command-line arguments passed for the 'update' mode.              #
 #                                                                              #
 # Outputs:                                                                     #
 #   Prints error messages for invalid or missing argument values.              #
@@ -389,7 +429,7 @@ print_help() {
 # Returns:                                                                     #
 #   None                                                                       #
 ################################################################################
-parse_arguments() {
+parse_update_arguments() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --scratch-dir)
@@ -419,21 +459,12 @@ parse_arguments() {
                     exit 1
                 fi
                 ;;
-            --tasks)
-                if [[ -n "$2" && "$2" != --* ]]; then
-                    TASKS="$2"
-                    shift 2
-                else
-                    echo "Error: --tasks requires a value"
-                    exit 1
-                fi
-                ;;
             --help)
                 print_help
                 exit 0
                 ;;
             *)
-                echo "Unknown parameter: $1"
+                echo "Unknown parameter for update mode: $1"
                 echo
                 print_help
                 exit 1
@@ -442,27 +473,153 @@ parse_arguments() {
     done
 }
 
+################################################################################
+# parse_clone_arguments                                                        #
+#                                                                              #
+# Parses arguments for the 'clone' mode and updates script variables.          #
+#                                                                              #
+# Globals:                                                                     #
+#   SCRATCH_DIR, OUTPUT_DIR - Common variables updated by parse_common_arguments#
+#   LOCAL_SSH_KEY, REMOTE_ADDRESS, REMOTE_USER, REMOTE_PORT, REMOTE_OUTPUT_DIR #
+#   - Updated based on respective arguments for the 'clone' mode.              #
+#                                                                              #
+# Arguments:                                                                   #
+#   $@ - The command-line arguments passed for the 'clone' mode.               #
+#                                                                              #
+# Outputs:                                                                     #
+#   Prints error messages for invalid or missing argument values.              #
+#                                                                              #
+# Returns:                                                                     #
+#   None                                                                       #
+################################################################################
+parse_clone_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --scratch-dir)
+                if [[ -n "$2" && "$2" != --* ]]; then
+                    SCRATCH_DIR="$2"
+                    shift 2
+                else
+                    echo "Error: --scratch-dir requires a value"
+                    exit 1
+                fi
+                ;;
+            --output-dir)
+                if [[ -n "$2" && "$2" != --* ]]; then
+                    OUTPUT_DIR="$2"
+                    shift 2
+                else
+                    echo "Error: --output-dir requires a value"
+                    exit 1
+                fi
+                ;;
+            --local-ssh-key)
+                if [[ -n "$2" && "$2" != --* ]]; then
+                    LOCAL_SSH_KEY="$2"
+                    shift 2
+                else
+                    echo "Error: --local-ssh-key requires a value"
+                    exit 1
+                fi
+                ;;
+            --remote-address)
+                if [[ -n "$2" && "$2" != --* ]]; then
+                    REMOTE_ADDRESS="$2"
+                    shift 2
+                else
+                    echo "Error: --remote-address requires a value"
+                    exit 1
+                fi
+                ;;
+            --remote-user)
+                if [[ -n "$2" && "$2" != --* ]]; then
+                    REMOTE_USER="$2"
+                    shift 2
+                else
+                    echo "Error: --remote-user requires a value"
+                    exit 1
+                fi
+                ;;
+            --remote-port)
+                if [[ -n "$2" && "$2" != --* ]]; then
+                    REMOTE_PORT="$2"
+                    shift 2
+                else
+                    echo "Error: --remote-port requires a value"
+                    exit 1
+                fi
+                ;;
+            --remote-output-dir)
+                if [[ -n "$2" && "$2" != --* ]]; then
+                    REMOTE_OUTPUT_DIR="$2"
+                    shift 2
+                else
+                    echo "Error: --remote-output-dir requires a value"
+                    exit 1
+                fi
+                ;;
+            --help)
+                print_help
+                exit 0
+                ;;
+            *)
+                echo "Unknown parameter for clone mode: $1"
+                echo
+                print_help
+                exit 1
+                ;;
+        esac
+    done
+
+    # Validate required arguments for clone mode
+    if [[ -z "$LOCAL_SSH_KEY" || -z "$REMOTE_ADDRESS" ]]; then
+        echo "Error: --local-ssh-key and --remote-address are required for clone mode."
+        exit 1
+    fi
+}
+
+if [[ $# -lt 1 ]]; then
+  echo "Error: Mode must be specified as the first argument ('kmer' or 'tryptic')."
+  print_help
+  exit 1
+fi
+
+MODE="$1"  # First argument specifies the mode
+shift      # Remove mode from arguments
+
+# Utilities that are required for both modes of this script
 checkdep lz4
 checkdep curl
 checkdep cargo "Rust toolchain"
 checkdep git
 
+parse_arguments "$@"
+
 UNIPROTKB_VERSION=$(get_latest_uniprot_version)
 
 log "UniProtKB version is: $UNIPROTKB_VERSION"
 
-parse_arguments "$@"
+if [[ "$MODE" == *"update"* ]]; then
+    checkdep uuidgen
+    checkdep pv
+    checkdep pigz
 
-if [[ "$TASKS" == *"build_index"* ]]; then
     setup_directories "$UNIPROTKB_VERSION"
     generate_tables "$UNIPROTKB_VERSION"
     build_suffix_array "$UNIPROTKB_VERSION"
     extract_and_move_tables "$UNIPROTKB_VERSION"
-fi
-
-
-if [[ "$TASKS" == *"setup_database"* ]]; then
     setup_mariadb_database "$UNIPROTKB_VERSION"
+elif [["$MODE" == *"clone"* ]]; then
+    checkdep scp
+    checkdep ssh
+
+    # First, copy all files from the remote server to the local server.
+    copy_existing_database "$UNIPROTKB_VERSION"
+    # Then, start filling the database
+    setup_mariadb_database "$UNIPROTKB_VERSION"
+else
+    echo "Error: Invalid mode '$MODE'. Supported modes are 'update' and 'clone'."
+    exit 1
 fi
 
 exit 0
