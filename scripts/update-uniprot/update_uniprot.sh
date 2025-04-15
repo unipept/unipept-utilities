@@ -285,11 +285,11 @@ extract_and_move_tables() {
 }
 
 ################################################################################
-# setup_mariadb_database                                                       #
+# setup_opensearch                                                             #
 #                                                                              #
-# Deletes any existing protein data stored in the MariaDB database for the     #
-# specified UniProt version, recreates the database structure, imports all     #
-# required data, and builds the necessary indices for efficient querying.      #
+# Initializes the OpenSearch instance for the specified UniProt version by     #
+# importing protein data. Clones the unipept-database repository, retrieves    #
+# the relevant protein entries, and calls the OpenSearch initialization script.#
 #                                                                              #
 # Globals:                                                                     #
 #   SCRATCH_DIR - Directory where temporary files and repositories are stored. #
@@ -300,14 +300,13 @@ extract_and_move_tables() {
 #   $1 - The UniProt version used to locate the directory containing the data. #
 #                                                                              #
 # Outputs:                                                                     #
-#   Modifies the MariaDB database with cleared data, new structure,            #
-#   imported data, and computed indices.                                       #
-#   Logs warnings and errors during execution.                                 #
+#   Imports protein data to the OpenSearch instance using the provided script. #
+#   Logs status and errors during execution.                                   #
 #                                                                              #
 # Returns:                                                                     #
 #   None                                                                       #
 ################################################################################
-setup_mariadb_database() {
+setup_opensearch() {
     local uniprot_version="$1"
 
     # Cleanup potential old versions of the unipept-database repository
@@ -316,22 +315,11 @@ setup_mariadb_database() {
     # Download new version of the database repo
     git clone --quiet "https://github.com/unipept/unipept-database.git" "${SCRATCH_DIR:?}/unipept-database"
 
-    log "Start setting up MariaDB database."
+    log "Start importing proteins in OpenSearch instance."
 
-    # Clear any data left from a previous version, and setup the database structure
-    mariadb -uroot -punipept < "${SCRATCH_DIR}/unipept-database/schemas_suffix_array/structure_no_index.sql"
+    "/${SCRATCH_DIR:?}/unipept-database/scripts/initialize_opensearch.sh" --uniprot-entries "${OUTPUT_DIR}/uniprot-${uniprot_version}/tables/uniprot_entries.tsv.lz4"
 
-    log "Start importing uniprot_entries."
-
-    # Import all uniprot entries into the database (currently without computing the indices)
-    lz4cat "${OUTPUT_DIR}/uniprot-${uniprot_version}/tables/uniprot_entries.tsv.lz4" | mariadb  --local-infile=1 -uroot -punipept unipept -e "LOAD DATA LOCAL INFILE '/dev/stdin' INTO TABLE uniprot_entries;SHOW WARNINGS" 2>&1
-
-    log "Start indexing of uniprot_entries."
-
-    # Now start computing the indices on the uniprot_entries table
-    mariadb -uroot -punipept < "${SCRATCH_DIR}/unipept-database/schemas_suffix_array/structure_index_only.sql"
-
-    log "Finished setting up MariaDB database."
+    log "Finished importing proteins in OpenSearch instance."
 }
 
 # Copies all required files from a server that already generated a new suffix array for the current UniProtKB version.
@@ -608,7 +596,7 @@ if [[ "$MODE" == *"update"* ]]; then
     generate_tables "$UNIPROTKB_VERSION"
     build_suffix_array "$UNIPROTKB_VERSION"
     extract_and_move_tables "$UNIPROTKB_VERSION"
-    setup_mariadb_database "$UNIPROTKB_VERSION"
+    setup_opensearch "$UNIPROTKB_VERSION"
 elif [["$MODE" == *"clone"* ]]; then
     checkdep scp
     checkdep ssh
@@ -616,7 +604,7 @@ elif [["$MODE" == *"clone"* ]]; then
     # First, copy all files from the remote server to the local server.
     copy_existing_database "$UNIPROTKB_VERSION"
     # Then, start filling the database
-    setup_mariadb_database "$UNIPROTKB_VERSION"
+    setup_opensearch "$UNIPROTKB_VERSION"
 else
     echo "Error: Invalid mode '$MODE'. Supported modes are 'update' and 'clone'."
     exit 1
