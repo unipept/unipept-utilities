@@ -103,7 +103,7 @@ log() { echo "$(date +'[%s (%F %T)]')" "$@"; }
 #   None                                                                       #
 ################################################################################
 get_latest_uniprot_version() {
-    LATEST_VERSION=$(curl -s https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/reldate.txt | head -n 1 | grep -oP '\d{4}_\d{2}' | sed 's/_/-/')
+    LATEST_VERSION=$(curl -s https://ftp.expasy.org/databases/uniprot/current_release/knowledgebase/complete/reldate.txt | head -n 1 | grep -oP '\d{4}_\d{2}' | sed 's/_/-/')
 
     if [[ -z "$LATEST_VERSION" ]]; then
         echo "Error: Unable to fetch the latest UniProtKB version."
