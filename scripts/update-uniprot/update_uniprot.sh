@@ -581,13 +581,15 @@ checkdep curl
 checkdep cargo "Rust toolchain"
 checkdep git
 
-parse_arguments "$@"
+
 
 UNIPROTKB_VERSION=$(get_latest_uniprot_version)
 
 log "UniProtKB version is: $UNIPROTKB_VERSION"
 
 if [[ "$MODE" == *"update"* ]]; then
+    parse_update_arguments "$@"
+
     checkdep uuidgen
     checkdep pv
     checkdep pigz
@@ -598,6 +600,8 @@ if [[ "$MODE" == *"update"* ]]; then
     extract_and_move_tables "$UNIPROTKB_VERSION"
     setup_opensearch "$UNIPROTKB_VERSION"
 elif [["$MODE" == *"clone"* ]]; then
+    parse_clone_arguments "$@"
+
     checkdep scp
     checkdep ssh
 
