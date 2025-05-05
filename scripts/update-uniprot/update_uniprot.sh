@@ -1,6 +1,7 @@
 #! /bin/bash
 
 set -eo pipefail
+set -o errtrace
 
 ################################################################################
 # This script downloads the latest version of the UniProtKB database, converts #
