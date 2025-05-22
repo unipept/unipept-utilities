@@ -209,7 +209,7 @@ generate_tables() {
         "interpro_entries.tsv.lz4"
         "go_terms.tsv.lz4"
         "ec_numbers.tsv.lz4"
-        "reference_proteomes.tsv.lz4"
+        "proteomes.tsv.lz4"
     )
     
     for file in "${required_files[@]}"; do
