@@ -607,7 +607,7 @@ parse_clone_arguments() {
 }
 
 if [[ $# -lt 1 ]]; then
-  echo "Error: Mode must be specified as the first argument ('kmer' or 'tryptic')."
+  echo "Error: Mode must be specified as the first argument ('update' or 'clone')."
   print_help
   exit 1
 fi
