@@ -649,7 +649,7 @@ if [[ "$MODE" == *"update"* ]]; then
     extract_and_move_tables "$UNIPROTKB_VERSION"
     setup_sampledata "$UNIPROTKB_VERSION"
     setup_opensearch "$UNIPROTKB_VERSION"
-elif [["$MODE" == *"clone"* ]]; then
+elif [[ "$MODE" == *"clone"* ]]; then
     parse_clone_arguments "$@"
 
     checkdep scp
