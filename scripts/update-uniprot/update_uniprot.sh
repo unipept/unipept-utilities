@@ -322,6 +322,15 @@ extract_and_move_tables() {
     log "Successfully moved all tables."
 }
 
+setup_sampledata() {
+    local uniprot_version="$1"
+
+    # Ensure the target directory exists
+    mkdir -p "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/suffix-array/datastore"
+
+    cp "${SCRATCH_DIR:?}/unipept-database/schemas_suffix_array/sampledata.json" "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/suffix-array/datastore/sampledata.json"
+}
+
 ################################################################################
 # setup_opensearch                                                             #
 #                                                                              #
@@ -638,6 +647,7 @@ if [[ "$MODE" == *"update"* ]]; then
     generate_tables "$UNIPROTKB_VERSION"
     build_suffix_array "$UNIPROTKB_VERSION"
     extract_and_move_tables "$UNIPROTKB_VERSION"
+    setup_sampledata "$UNIPROTKB_VERSION"
     setup_opensearch "$UNIPROTKB_VERSION"
 elif [["$MODE" == *"clone"* ]]; then
     parse_clone_arguments "$@"
