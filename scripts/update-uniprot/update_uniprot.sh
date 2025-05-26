@@ -385,7 +385,7 @@ copy_existing_database() {
 
     # Now start copying the generated files on the other server to this machine. First clean up any remains from a
     # previous invocation of this script
-    rm -r "${OUTPUT_DIR}/uniprot-${uniprot_version}"
+    rm -rf "${OUTPUT_DIR:?}/uniprot-${uniprot_version}"
 
     scp -i "${LOCAL_SSH_KEY}" -P "${REMOTE_PORT}" -r "${REMOTE_USER}@${REMOTE_ADDRESS}:${remote_dir}" "${OUTPUT_DIR}"
 }
