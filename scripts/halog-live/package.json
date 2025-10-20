@@ -1,0 +1,10 @@
+{
+  "name": "halog-live",
+  "version": "1.0.0",
+  "description": "Send live HAProxy node request counts to Graphite",
+  "main": "halog-live.js",
+  "type": "module",
+  "dependencies": {
+    "yargs": "^17.7.2"
+  }
+}
