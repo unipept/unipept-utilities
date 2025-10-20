@@ -59,7 +59,9 @@ const processCommand = function(command) {
  * @param daysAgo Which date (e.g. how many days ago) does the provided log file belong to? Defaults to 1.
  */
 const processEndpoints = function(dbConnection, halogPath, daysAgo = 1) {
-    const lines = processCommand(`cat ${halogPath} | halog -u -H`);
+    // -s -1 for halog is important to ignore the first metadata field printed by rsyslog to the haproxy log file.
+    // Without this, halog crashes since it doesn't know how to interpret this metadata.
+    const lines = processCommand(`cat ${halogPath} | halog -s -1 -u -H`);
 
     // Some constants to parse the input lines read by this script.
     const delimiter = " ";
@@ -134,7 +136,7 @@ const processEndpoints = function(dbConnection, halogPath, daysAgo = 1) {
  * @param daysAgo Which date (e.g. how many days ago) does the provided log file belong to? Defaults to 1.
  */
 const processNodes = function(dbConnection, halogPath, daysAgo = 1) {
-    const lines = processCommand(`cat ${halogPath} | halog -H -srv`);
+    const lines = processCommand(`cat ${halogPath} | halog -s -1 -H -srv`);
 
     // Some constants to parse the input lines read by this script.
     const delimiter = " ";
