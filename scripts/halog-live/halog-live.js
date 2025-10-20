@@ -87,39 +87,36 @@ function countRequestsByNode(logPath) {
 }
 
 function sendToGraphite(host, port, metrics) {
-    console.log("Trying to send metrics:");
-    console.log(metrics);
+    return new Promise((resolve, reject) => {
+        const client = new net.Socket();
+        let resolved = false;
 
-    // return new Promise((resolve, reject) => {
-    //     const client = new net.Socket();
-    //     let resolved = false;
-    //
-    //     client.connect(port, host, () => {
-    //         const ts = Math.floor(Date.now() / 1000);
-    //         const lines = [];
-    //         for (const {path, value} of metrics) {
-    //             lines.push(`${path} ${value} ${ts}`);
-    //         }
-    //         const payload = lines.join('\n') + '\n';
-    //         client.write(payload, 'utf8', () => {
-    //             client.end();
-    //         });
-    //     });
-    //
-    //     client.on('error', (err) => {
-    //         if (!resolved) {
-    //             resolved = true;
-    //             reject(err);
-    //         }
-    //     });
-    //
-    //     client.on('close', () => {
-    //         if (!resolved) {
-    //             resolved = true;
-    //             resolve();
-    //         }
-    //     });
-    // });
+        client.connect(port, host, () => {
+            const ts = Math.floor(Date.now() / 1000);
+            const lines = [];
+            for (const {path, value} of metrics) {
+                lines.push(`${path} ${value} ${ts}`);
+            }
+            const payload = lines.join('\n') + '\n';
+            client.write(payload, 'utf8', () => {
+                client.end();
+            });
+        });
+
+        client.on('error', (err) => {
+            if (!resolved) {
+                resolved = true;
+                reject(err);
+            }
+        });
+
+        client.on('close', () => {
+            if (!resolved) {
+                resolved = true;
+                resolve();
+            }
+        });
+    });
 }
 
 async function main() {
