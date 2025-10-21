@@ -304,6 +304,7 @@ async function main() {
     let avgs = {};
     try {
         avgs = avgLatencyByNodeFromRecent(haproxyLog);
+        console.log('Computed avg latency metrics:', avgs);
     } catch (e) {
         // If halog is missing or parsing fails, keep service running and just skip avg metrics this round
         console.error('Failed to compute avg latency metrics:', e.message || e);
