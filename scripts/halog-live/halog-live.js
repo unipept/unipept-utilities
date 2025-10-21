@@ -70,10 +70,6 @@ function processCommandWithInput(command, input) {
         lines.push(trimmed);
     }
 
-    // Remove the last line, which is the status message of the command
-    if (lines.length > 0) {
-        lines.splice(-1, 1);
-    }
     return lines;
 }
 
