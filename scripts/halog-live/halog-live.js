@@ -18,6 +18,7 @@
 
 import net from 'node:net';
 import {execSync} from 'node:child_process';
+import fs from 'node:fs';
 
 import yargs from 'yargs';
 import {hideBin} from 'yargs/helpers';
@@ -49,6 +50,148 @@ function processCommand(command) {
         lines.splice(-1, 1);
     }
     return lines;
+}
+
+// Same as processCommand, but feeds the provided input to the process via STDIN
+function processCommandWithInput(command, input) {
+    let lineIdx = 0;
+    const lines = [];
+
+    const stdout = execSync(command, {encoding: 'utf-8', input});
+
+    for (const line of stdout.split('\n')) {
+        if (lineIdx === 0) {
+            lineIdx++;
+            continue;
+        }
+        lineIdx++;
+        const trimmed = line.trimEnd();
+        if (trimmed.length === 0) continue;
+        lines.push(trimmed);
+    }
+
+    // Remove the last line, which is the status message of the command
+    if (lines.length > 0) {
+        lines.splice(-1, 1);
+    }
+    return lines;
+}
+
+function parseSyslogTimestampToDate(tokens) {
+    // ISO-8601/RFC3339 only (e.g., 2025-10-21T10:08:04Z or 2025-10-21T10:08:04+02:00)
+    // tokens: an array of whitespace-separated tokens from the start of a log line
+    if (!tokens || tokens.length === 0) return null;
+
+    const first = tokens[0];
+    // Some syslog configurations might split timezone in a separate token, e.g.:
+    //   2025-10-21T10:08:04 +02:00
+    const tzSecond = tokens[1];
+
+    // Detect ISO-8601: YYYY-MM-DDTHH:MM:SS[.sss][Z|±HH:MM]
+    const isoLike = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+\-]\d{2}:?\d{2})?$/.test(first);
+    const tzOnly = tzSecond && /^[+\-]\d{2}:?\d{2}$/.test(tzSecond);
+
+    if (!(isoLike || (/^\d{4}-\d{2}-\d{2}T/.test(first) && tzOnly))) {
+        return null; // Not ISO-8601
+    }
+
+    let isoStr = first;
+    // If timezone is provided as a separate token, append it without space
+    if (!/[Zz]$/.test(first) && tzOnly && !/[+\-]\d{2}:?\d{2}$/.test(first)) {
+        isoStr = first + tzSecond;
+    }
+
+    // Try direct parsing first
+    let d = new Date(isoStr);
+    if (!Number.isNaN(d.getTime())) return d;
+
+    // If parsing failed, try without fractional seconds by stripping them
+    const m = first.match(/^(.*T\d{2}:\d{2}:\d{2})(?:\.\d+)?(.*)$/);
+    if (m) {
+        const tryStr = (m[1] + (m[2] || '') + (tzOnly ? tzSecond : ''));
+        const d2 = new Date(tryStr);
+        if (!Number.isNaN(d2.getTime())) return d2;
+    }
+
+    return null;
+}
+
+function filterRecentLogLines(logPath, windowSeconds = 60) {
+    let content;
+    try {
+        content = fs.readFileSync(logPath, 'utf-8');
+    } catch (e) {
+        console.error(`Failed to read HAProxy log at ${logPath}`);
+        throw e;
+    }
+    const now = Date.now();
+    const cutoff = now - windowSeconds * 1000;
+
+    const out = [];
+    for (const line of content.split('\n')) {
+        if (!line) continue;
+        // Expect ISO-8601 timestamp at the start of the line
+        const parts = line.split(/\s+/);
+        if (parts.length < 1) continue;
+        const dt = parseSyslogTimestampToDate(parts);
+        if (!dt) continue;
+        if (dt.getTime() >= cutoff) {
+            out.push(line);
+        }
+    }
+    return out.join('\n') + (out.length ? '\n' : '');
+}
+
+function avgLatencyByNodeFromRecent(logPath) {
+    const filtered = filterRecentLogLines(logPath, 60);
+    if (!filtered || filtered.trim().length === 0) {
+        return {};
+    }
+
+    let lines;
+    try {
+        // Feed filtered lines to halog via stdin
+        lines = processCommandWithInput('halog -s -1 -H -srv', filtered);
+    } catch (e) {
+        console.error('Failed to execute halog for avg latency. Is it installed and in PATH?');
+        throw e;
+    }
+
+    const stats = new Map();
+    const delimiter = ' ';
+    const serverNameCol = 0;
+    const totReqCountCol = 7;
+    const avgTimeCol = 11;
+
+    for (const line of lines) {
+        if (!line) continue;
+        const fields = line.split(delimiter);
+        let serverName = fields[serverNameCol];
+        if (!serverName) continue;
+
+        const parts = serverName.split('/');
+        const node = parts.length > 1 ? parts[1] : serverName;
+
+        const totalReqCount = Number.parseInt(fields[totReqCountCol], 10);
+        const avgTime = Number.parseFloat(fields[avgTimeCol]);
+        if (!Number.isFinite(totalReqCount) || !Number.isFinite(avgTime)) continue;
+
+        if (!stats.has(node)) {
+            stats.set(node, {total: 0, weightedSum: 0});
+        }
+        const nodeStats = stats.get(node);
+        nodeStats.total += totalReqCount;
+        nodeStats.weightedSum += avgTime * totalReqCount;
+    }
+
+    // Convert to node -> avg
+    const result = Object.create(null);
+    for (const [node, {total, weightedSum}] of stats.entries()) {
+        if (total > 0) {
+            result[node] = weightedSum / total;
+        }
+    }
+    return result;
 }
 
 function countRequestsByNode(logPath) {
@@ -155,6 +298,21 @@ async function main() {
         const nodeSafe = sanitizeForGraphite(node);
         const path = `halog_live.unipeptapi.${nodeSafe}.request_count`;
         metrics.push({path, value: total});
+    }
+
+    // Compute average response time for the last minute per node
+    let avgs = {};
+    try {
+        avgs = avgLatencyByNodeFromRecent(haproxyLog);
+    } catch (e) {
+        // If halog is missing or parsing fails, keep service running and just skip avg metrics this round
+        console.error('Failed to compute avg latency metrics:', e.message || e);
+        process.exitCode = 1;
+    }
+    for (const [node, avg] of Object.entries(avgs)) {
+        const nodeSafe = sanitizeForGraphite(node);
+        const path = `halog_live.unipeptapi.${nodeSafe}.avg_response_time`;
+        metrics.push({path, value: avg});
     }
 
     if (metrics.length === 0) {
