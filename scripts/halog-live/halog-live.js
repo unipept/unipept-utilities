@@ -163,6 +163,9 @@ function avgLatencyByNodeFromRecent(logPath) {
     const totReqCountCol = 7;
     const avgTimeCol = 11;
 
+    console.log('Parsed lines:');
+    console.log(lines);
+
     for (const line of lines) {
         if (!line) continue;
         const fields = line.split(delimiter);
