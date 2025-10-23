@@ -644,6 +644,8 @@ if [[ "$MODE" == *"update"* ]]; then
     checkdep uuidgen
     checkdep pv
     checkdep pigz
+    checkdep build-essential
+    checkdep cmake
 
     setup_directories "$UNIPROTKB_VERSION"
     generate_tables "$UNIPROTKB_VERSION"
