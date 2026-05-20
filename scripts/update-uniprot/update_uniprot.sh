@@ -256,7 +256,7 @@ build_suffix_array() {
     rm -rf "${SCRATCH_DIR:?}/unipept-index"
 
     # Download new version of the index repo
-    git clone -b feature/speedup-loading-index --quiet "https://github.com/unipept/unipept-index.git" "${SCRATCH_DIR:?}/unipept-index"
+    git clone --quiet "https://github.com/unipept/unipept-index.git" "${SCRATCH_DIR:?}/unipept-index"
 
     log "Successfully cloned unipept-index repo."
 
