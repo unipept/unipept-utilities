@@ -201,7 +201,7 @@ generate_tables() {
     log "Started building and generating Unipept table files."
 
     # Start the download and generation of all the suffix array tables
-    "/${SCRATCH_DIR:?}/unipept-database/scripts/generate_sa_tables.sh" --database-sources "$DATABASE_SOURCES" --output-dir "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/tables" --temp-dir "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/temp"
+    "${SCRATCH_DIR:?}/unipept-database/scripts/generate_sa_tables.sh" --database-sources "$DATABASE_SOURCES" --output-dir "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/tables" --temp-dir "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/temp"
 
     # Check if the required files are present and have been generated successfully
     local required_files=(
@@ -269,7 +269,7 @@ build_suffix_array() {
     log "Started building suffix array"
 
     # Start the construction of the binary suffix array file
-    "/${SCRATCH_DIR:?}/unipept-index/target/release/sa-builder" -a "lib-sais" -s 2 -c --database-file "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/suffix-array"/proteins.tsv --output "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/suffix-array/sa.bin"
+    "${SCRATCH_DIR:?}/unipept-index/target/release/sa-builder" -a "lib-sais" -s 2 -c --database-file "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/suffix-array"/proteins.tsv --output-sa "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/suffix-array/sa.bin" --output-proteins "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/suffix-array/proteins.bin" --output-mapping "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/suffix-array/mapping.bin"
 
     log "Finished building suffix array"
 }
@@ -366,7 +366,7 @@ setup_opensearch() {
 
     log "Start importing proteins in OpenSearch instance."
 
-    "/${SCRATCH_DIR:?}/unipept-database/scripts/initialize_opensearch.sh" --uniprot-entries "${OUTPUT_DIR}/uniprot-${uniprot_version}/tables/uniprot_entries.tsv.lz4"
+    "${SCRATCH_DIR:?}/unipept-database/scripts/initialize_opensearch.sh" --uniprot-entries "${OUTPUT_DIR}/uniprot-${uniprot_version}/tables/uniprot_entries.tsv.lz4"
 
     log "Finished importing proteins in OpenSearch instance."
 }
@@ -644,7 +644,6 @@ if [[ "$MODE" == *"update"* ]]; then
     checkdep uuidgen
     checkdep pv
     checkdep pigz
-    checkdep build-essential
     checkdep cmake
 
     setup_directories "$UNIPROTKB_VERSION"
