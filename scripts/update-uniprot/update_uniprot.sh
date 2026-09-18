@@ -201,7 +201,7 @@ generate_tables() {
     log "Started building and generating Unipept table files."
 
     # Start the download and generation of all the suffix array tables
-    "${SCRATCH_DIR:?}/unipept-database/scripts/generate_sa_tables.sh" --database-sources "$DATABASE_SOURCES" --output-dir "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/tables" --temp-dir "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/temp"
+    "${SCRATCH_DIR:?}/unipept-database/pipelines/suffix-array/build.sh" --database-sources "$DATABASE_SOURCES" --output-dir "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/tables" --temp-dir "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/temp"
 
     # Check if the required files are present and have been generated successfully
     local required_files=(
@@ -330,7 +330,7 @@ setup_sampledata() {
     # Ensure the target directory exists
     mkdir -p "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/suffix-array/datastore"
 
-    cp "${SCRATCH_DIR:?}/unipept-database/schemas_suffix_array/sampledata.json" "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/suffix-array/datastore/sampledata.json"
+    cp "${SCRATCH_DIR:?}/unipept-database/assets/sampledata.json" "${OUTPUT_DIR:?}/uniprot-${uniprot_version}/suffix-array/datastore/sampledata.json"
 }
 
 ################################################################################
@@ -366,7 +366,7 @@ setup_opensearch() {
 
     log "Start importing proteins in OpenSearch instance."
 
-    "${SCRATCH_DIR:?}/unipept-database/scripts/initialize_opensearch.sh" --uniprot-entries "${OUTPUT_DIR}/uniprot-${uniprot_version}/tables/uniprot_entries.tsv.lz4"
+    "${SCRATCH_DIR:?}/unipept-database/opensearch/load.sh" --uniprot-entries "${OUTPUT_DIR}/uniprot-${uniprot_version}/tables/uniprot_entries.tsv.lz4"
 
     log "Finished importing proteins in OpenSearch instance."
 }
